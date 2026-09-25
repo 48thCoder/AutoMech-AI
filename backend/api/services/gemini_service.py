@@ -114,12 +114,12 @@ class GeminiService:
 
             mime_map = {
                 "image": "image/jpeg",
-                "audio": "audio/mp3",
+                "audio": "audio/webm",
                 "video": "video/mp4",
             }
             mime_type = mime_map.get(media_upload.media_type, "image/jpeg")
 
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            model = genai.GenerativeModel("gemini-flash-latest")
             response = model.generate_content([
                 {
                     "mime_type": mime_type,
@@ -181,7 +181,7 @@ Return ONLY valid JSON matching this schema:
 """
         try:
             model = genai.GenerativeModel(
-                "gemini-1.5-flash",
+                "gemini-flash-latest",
                 generation_config={"response_mime_type": "application/json"},
             )
             response = model.generate_content(prompt)

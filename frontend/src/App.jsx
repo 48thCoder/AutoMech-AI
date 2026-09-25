@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect } from "react";
+﻿﻿import { useState, useRef, useEffect } from "react";
 import {
   Wrench,
   Send,
@@ -9,12 +9,14 @@ import {
   DollarSign,
   CheckCircle2,
   FileCheck,
-  ChevronRight,
+  Printer,
   Sparkles,
+  Mic,
+  Square,
 } from "lucide-react";
 import "./App.css";
 
-const API_BASE = "http://localhost:8000/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 
 export default function App() {
   const [conversationId, setConversationId] = useState(null);
@@ -29,6 +31,8 @@ export default function App() {
   const [state, setState] = useState("gathering");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [diagnosis, setDiagnosis] = useState(null);
   const [diagnosing, setDiagnosing] = useState(false);
   const [booking, setBooking] = useState(null);
@@ -44,6 +48,9 @@ export default function App() {
 
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -85,8 +92,7 @@ export default function App() {
     }
   };
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
+  const uploadMediaFile = async (file, originalName) => {
     if (!file || !conversationId) return;
 
     setUploading(true);
@@ -94,7 +100,7 @@ export default function App() {
 
     const formData = new FormData();
     formData.append("conversation_id", conversationId);
-    formData.append("file", file);
+    formData.append("file", file, originalName || file.name);
 
     try {
       const res = await fetch(`${API_BASE}/upload/`, {
@@ -109,7 +115,7 @@ export default function App() {
         ...prev,
         {
           role: "user",
-          text: `[Uploaded Media: ${data.original_filename}]`,
+          text: `[Attached ${data.media_type.toUpperCase()}: ${data.original_filename}]`,
         },
         {
           role: "bot",
@@ -120,7 +126,58 @@ export default function App() {
       setErrorMsg(err.message || "Error uploading media.");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      uploadMediaFile(file, file.name);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const startAudioRecording = async () => {
+    if (!conversationId) return;
+    setErrorMsg("");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        uploadMediaFile(audioBlob, "engine_audio_recording.weba");
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((sec) => sec + 1);
+      }, 1000);
+    } catch (err) {
+      setErrorMsg("Microphone access was denied or not supported.");
+    }
+  };
+
+  const stopAudioRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
     }
   };
 
@@ -146,6 +203,10 @@ export default function App() {
     } finally {
       setDiagnosing(false);
     }
+  };
+
+  const handlePrintReport = () => {
+    window.print();
   };
 
   const handleBookingSubmit = async (e) => {
@@ -230,12 +291,33 @@ export default function App() {
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  disabled={uploading}
+                  disabled={uploading || isRecording}
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <Upload size={16} />
                   {uploading ? "Uploading..." : "Upload Media"}
                 </button>
+
+                {!isRecording ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={uploading}
+                    onClick={startAudioRecording}
+                  >
+                    <Mic size={16} />
+                    Record Sound
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-danger recording-pulse"
+                    onClick={stopAudioRecording}
+                  >
+                    <Square size={16} />
+                    Stop ({recordingSeconds}s)
+                  </button>
+                )}
               </>
             )}
 
@@ -243,7 +325,7 @@ export default function App() {
               <button
                 type="button"
                 className="btn btn-accent"
-                disabled={diagnosing}
+                disabled={diagnosing || isRecording}
                 onClick={handleGenerateDiagnosis}
               >
                 <Sparkles size={16} />
@@ -338,7 +420,7 @@ export default function App() {
               <Sparkles size={36} className="placeholder-icon" />
               <h3>Interactive Triage</h3>
               <p>
-                Chat with the AI assistant to isolate symptoms, or upload dashboard photos and audio clips
+                Chat with the AI assistant to isolate symptoms, or record engine sounds and upload photos
                 to trigger a structured inspection report.
               </p>
             </div>
@@ -366,10 +448,48 @@ export default function App() {
                 <strong>Preferred Slot:</strong> <span>{booking.preferred_slot}</span>
               </p>
               <div className="booking-status-tag">{booking.status.toUpperCase()}</div>
+              <button type="button" className="btn btn-secondary btn-block report-button" onClick={handlePrintReport}>
+                <Printer size={16} />
+                Download PDF Report
+              </button>
+              <p className="report-hint">Use your browser's print dialog and choose “Save as PDF”.</p>
             </div>
           )}
         </aside>
       </div>
+
+      {booking && diagnosis && (
+        <section className="print-report" aria-label="AutoMech AI diagnostic report">
+          <header className="print-report-header">
+            <h1>AutoMech AI</h1>
+            <p>Diagnostic Report &amp; Booking Receipt</p>
+            <span>Issued {new Date().toLocaleDateString()}</span>
+          </header>
+          <section className="print-report-section">
+            <h2>Vehicle Diagnosis</h2>
+            <dl>
+              <div><dt>Summary</dt><dd>{diagnosis.summary}</dd></div>
+              <div><dt>Probable cause</dt><dd>{diagnosis.probable_cause}</dd></div>
+              <div><dt>Severity</dt><dd>{diagnosis.severity.toUpperCase()}</dd></div>
+              <div><dt>Recommended service</dt><dd>{diagnosis.suggested_service}</dd></div>
+              <div><dt>Estimated cost</dt><dd>{diagnosis.estimated_cost}</dd></div>
+              <div><dt>Estimated time</dt><dd>{diagnosis.estimated_time}</dd></div>
+            </dl>
+          </section>
+          <section className="print-report-section">
+            <h2>Booking Receipt</h2>
+            <dl>
+              <div><dt>Booking ID</dt><dd>{booking.id}</dd></div>
+              <div><dt>Customer</dt><dd>{booking.customer_name}</dd></div>
+              <div><dt>Phone</dt><dd>{booking.phone}</dd></div>
+              <div><dt>Vehicle</dt><dd>{booking.vehicle}</dd></div>
+              <div><dt>Preferred slot</dt><dd>{booking.preferred_slot}</dd></div>
+              <div><dt>Status</dt><dd>{booking.status.toUpperCase()}</dd></div>
+            </dl>
+          </section>
+          <p className="print-disclaimer">This AI-assisted report is intended to help your mechanic assess the vehicle. It is not a substitute for an in-person inspection.</p>
+        </section>
+      )}
 
       {showBookingModal && (
         <div className="modal-backdrop">

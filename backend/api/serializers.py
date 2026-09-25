@@ -1,4 +1,4 @@
-"""
+﻿"""
 DRF serializers for AutoMech AI.
 Serializers handle validation, shape conversion, and provide the contract
 between the API views and the internal models / service layer.
@@ -24,6 +24,7 @@ EXTENSION_TO_MEDIA_TYPE :dict [str ,str ]={
 "mp3":"audio",
 "wav":"audio",
 "ogg":"audio",
+"webm":"audio",
 "mp4":"video",
 "webm":"video",
 "mov":"video",
