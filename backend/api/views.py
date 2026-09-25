@@ -7,8 +7,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from api.models import Conversation, ConversationState
+from api.models import Booking, Conversation, ConversationState, Diagnosis
 from api.serializers import (
+    BookingInputSerializer,
+    BookingSerializer,
     ChatInputSerializer,
     ChatResponseSerializer,
     DiagnosisSerializer,
@@ -87,5 +89,48 @@ class DiagnosisView(APIView):
 
         return Response(
             DiagnosisSerializer(diagnosis).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class BookingCreateView(APIView):
+
+    def post(self, request: Request) -> Response:
+        serializer = BookingInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        diagnosis_id = serializer.validated_data["diagnosis_id"]
+        diagnosis = get_object_or_404(Diagnosis, id=diagnosis_id)
+
+        if hasattr(diagnosis, "booking"):
+            return Response(
+                {"detail": "A booking already exists for this diagnosis."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        booking = Booking.objects.create(
+            diagnosis=diagnosis,
+            customer_name=serializer.validated_data["customer_name"],
+            phone=serializer.validated_data["phone"],
+            vehicle=serializer.validated_data["vehicle"],
+            preferred_slot=serializer.validated_data["preferred_slot"],
+        )
+
+        conversation = diagnosis.conversation
+        conversation.state = ConversationState.BOOKED
+        conversation.save(update_fields=["state"])
+
+        return Response(
+            BookingSerializer(booking).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class BookingDetailView(APIView):
+
+    def get(self, request: Request, pk: str) -> Response:
+        booking = get_object_or_404(Booking, id=pk)
+        return Response(
+            BookingSerializer(booking).data,
             status=status.HTTP_200_OK,
         )
